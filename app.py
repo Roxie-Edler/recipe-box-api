@@ -6,8 +6,12 @@ That is the point: you will add both, lesson by lesson, in Units 2 and 3.
 """
 
 import sqlite3
+from sqlite3 import IntegrityError
 
 from flask import Flask, g, jsonify, request
+from werkzeug.security import generate_password_hash
+
+
 
 DATABASE = "recipes.db"
 
@@ -126,6 +130,49 @@ def delete_recipe(recipe_id):
     if cur.rowcount == 0:
         return jsonify({"error": "recipe not found"}), 404
     return "", 204
+
+
+
+@app.post("/register")
+def register():
+    data = request.get_json(silent=True) or {}
+
+    username = data.get("username")
+    email = data.get("email")
+    password = data.get("password")
+
+    # Validate required fields
+    if not username or not email or not password:
+        return jsonify({
+            "error": "username, email, and password are required"
+        }), 400
+
+    # Hash the password before storing it
+
+    password_hash = generate_password_hash(password, method="pbkdf2:sha256")
+
+    db = get_db()
+
+    try:
+        cur = db.execute(
+            """
+            INSERT INTO users (username, email, password_hash)
+            VALUES (?, ?, ?)
+            """,
+            (username, email, password_hash),
+        )
+        db.commit()
+    except IntegrityError:
+        return jsonify({
+            "error": "username or email already registered"
+        }), 409
+
+    return jsonify({
+        "id": cur.lastrowid,
+        "username": username,
+        "email": email,
+    }), 201
+
 
 
 if __name__ == "__main__":
