@@ -1,6 +1,7 @@
 """Create and seed recipes.db. Run once after cloning: python init_db.py"""
 
 import sqlite3
+from werkzeug.security import generate_password_hash
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS recipes (
@@ -53,4 +54,27 @@ if existing == 0:
     print(f"Created recipes.db and seeded {len(SEED)} recipes.")
 else:
     print(f"recipes.db already has {existing} recipes - nothing to do.")
+
+# Seed users if none exist yet
+existing_users = connection.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+if existing_users == 0:
+    connection.executemany(
+        "INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)",
+        [
+            (
+                "alice",
+                "alice@example.com",
+                generate_password_hash("alicepassword", method="pbkdf2:sha256"),
+            ),
+            (
+                "bob",
+                "bob@example.com",
+                generate_password_hash("bobpassword", method="pbkdf2:sha256"),
+            ),
+        ],
+    )
+    connection.commit()
+    print("Seeded 2 users.")
+else:
+    print(f"users table already has {existing_users} users - nothing to do.")
 connection.close()
