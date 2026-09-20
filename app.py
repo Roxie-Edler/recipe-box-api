@@ -173,7 +173,38 @@ def register():
         "email": email,
     }), 201
 
+from werkzeug.security import check_password_hash
+from flask import g  # if you're using g.db or similar
 
+@app.route("/login", methods=["POST"])
+def login():
+    data = request.get_json() or {}
+
+    username = data.get("username")
+    password = data.get("password")
+
+    # 1) Require both fields
+    if not username or not password:
+        return jsonify({"error": "Username and password are required"}), 400
+
+    db = get_db()  # or however you get your per-request connection
+
+    # 2) Lookup user by username
+    user = db.execute(
+        "SELECT id, username, password_hash FROM users WHERE username = ?",
+        (username,),
+    ).fetchone()
+
+    # 3) Verify credentials
+    if user is None or not check_password_hash(user["password_hash"], password):
+        # Generic failure: same for unknown username and wrong password
+        return jsonify({"error": "Invalid credentials"}), 401
+
+    # 4) Success: return safe identity only
+    return jsonify({
+        "id": user["id"],
+        "username": user["username"],
+    }), 200
 
 if __name__ == "__main__":
     app.run(debug=True)
