@@ -8,14 +8,27 @@ That is the point: you will add both, lesson by lesson, in Units 2 and 3.
 import sqlite3
 from sqlite3 import IntegrityError
 
+from werkzeug.security import check_password_hash
+from flask import g  # if you're using g.db or similar
+
 from flask import Flask, g, jsonify, request
 from werkzeug.security import generate_password_hash
+
+import os
+from dotenv import load_dotenv
+
+import jwt
+from datetime import datetime, timedelta
+
+
+load_dotenv()
+
+app = Flask(__name__)
+app.config["JWT_SECRET"] = os.getenv("JWT_SECRET")
 
 
 
 DATABASE = "recipes.db"
-
-app = Flask(__name__)
 
 
 def get_db():
@@ -66,9 +79,36 @@ def get_recipe(recipe_id):
 
 @app.post("/recipes")
 def create_recipe():
+    # 1) Read Authorization header
+    auth_header = request.headers.get("Authorization", "")
+
+    # Expect format: "Bearer <token>"
+    if not auth_header.startswith("Bearer "):
+        return jsonify({"error": "Missing or invalid Authorization header"}), 401
+
+    token = auth_header.split(" ", 1)[1].strip()
+
+    secret = app.config.get("JWT_SECRET")
+    if not secret:
+        raise RuntimeError("JWT_SECRET is not configured")
+
+    try:
+        # 2) Verify token signature and decode payload
+        payload = jwt.decode(token, secret, algorithms=["HS256"])
+    except jwt.InvalidTokenError as e:
+        # TEMP: print the specific reason to the server logs
+        print("JWT decode error:", repr(e))
+        return jsonify({"error": "Invalid or expired token"}), 401
+
+    # If we get here, token is valid and payload is trusted
+    user_id = payload.get("sub")
+    username = payload.get("username")
+    print("Authenticated as:", user_id, username)
+
     data = request.get_json(silent=True)
     if not data or not data.get("title") or not data.get("ingredients"):
         return jsonify({"error": "title and ingredients are required"}), 400
+
     db = get_db()
     try:
         cur = db.execute(
@@ -84,6 +124,7 @@ def create_recipe():
         db.commit()
     except sqlite3.IntegrityError:
         return jsonify({"error": "a recipe with that title already exists"}), 409
+
     row = db.execute(
         "SELECT * FROM recipes WHERE id = ?", (cur.lastrowid,)
     ).fetchone()
@@ -173,8 +214,6 @@ def register():
         "email": email,
     }), 201
 
-from werkzeug.security import check_password_hash
-from flask import g  # if you're using g.db or similar
 
 @app.route("/login", methods=["POST"])
 def login():
@@ -187,7 +226,7 @@ def login():
     if not username or not password:
         return jsonify({"error": "Username and password are required"}), 400
 
-    db = get_db()  # or however you get your per-request connection
+    db = get_db()
 
     # 2) Lookup user by username
     user = db.execute(
@@ -197,13 +236,29 @@ def login():
 
     # 3) Verify credentials
     if user is None or not check_password_hash(user["password_hash"], password):
-        # Generic failure: same for unknown username and wrong password
         return jsonify({"error": "Invalid credentials"}), 401
 
-    # 4) Success: return safe identity only
+    # 4) Success: issue a signed token and return safe identity
+    payload = {
+        "sub": str(user["id"]),      # 👈 make subject a string
+        "username": user["username"],
+        "exp": datetime.utcnow() + timedelta(hours=1),
+    }
+
+    secret = app.config.get("JWT_SECRET")
+    if not secret:
+        raise RuntimeError("JWT_SECRET is not configured")
+
+    token = jwt.encode(
+        payload,
+        secret,
+        algorithm="HS256",
+    )
+
     return jsonify({
         "id": user["id"],
         "username": user["username"],
+        "token": token,
     }), 200
 
 if __name__ == "__main__":
