@@ -8,6 +8,8 @@ That is the point: you will add both, lesson by lesson, in Units 2 and 3.
 import sqlite3
 from sqlite3 import IntegrityError
 
+from jwt import ExpiredSignatureError
+
 from werkzeug.security import check_password_hash
 from flask import g  # if you're using g.db or similar
 
@@ -93,12 +95,13 @@ def create_recipe():
         raise RuntimeError("JWT_SECRET is not configured")
 
     try:
-        # 2) Verify token signature and decode payload
         payload = jwt.decode(token, secret, algorithms=["HS256"])
+    except ExpiredSignatureError:
+    # Token was valid once, but its exp time has passed
+        return jsonify({"error": "token expired"}), 401
     except jwt.InvalidTokenError as e:
-        # TEMP: print the specific reason to the server logs
         print("JWT decode error:", repr(e))
-        return jsonify({"error": "Invalid or expired token"}), 401
+        return jsonify({"error": "invalid token"}), 401
 
     # If we get here, token is valid and payload is trusted
     user_id = payload.get("sub")
