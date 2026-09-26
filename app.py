@@ -157,6 +157,7 @@ def update_recipe(recipe_id):
         return jsonify({"error": "invalid token"}), 401
 
     user_id = int(payload.get("sub"))
+    role = payload.get("role", "user")
 
     data = request.get_json(silent=True)
     if not data:
@@ -172,7 +173,7 @@ def update_recipe(recipe_id):
     if row is None:
         return jsonify({"error": "recipe not found"}), 404
 
-    if row["owner_id"] != user_id:
+    if row["owner_id"] != user_id and role != "admin":
         return jsonify({"error": "forbidden"}), 403
 
     # Build update
@@ -231,6 +232,7 @@ def delete_recipe(recipe_id):
         return jsonify({"error": "invalid token"}), 401
 
     user_id = int(payload.get("sub"))
+    role = payload.get("role", "user")
 
     db = get_db()
 
@@ -243,7 +245,7 @@ def delete_recipe(recipe_id):
         return jsonify({"error": "recipe not found"}), 404
 
     # Check ownership
-    if row["owner_id"] != user_id:
+    if row["owner_id"] != user_id and role != "admin":
         return jsonify({"error": "forbidden"}), 403
 
     # Delete recipe
@@ -313,7 +315,7 @@ def login():
 
     # 2) Lookup user by username
     user = db.execute(
-        "SELECT id, username, password_hash FROM users WHERE username = ?",
+        "SELECT id, username, password_hash, role FROM users WHERE username = ?",
         (username,),
     ).fetchone()
 
@@ -325,6 +327,7 @@ def login():
     payload = {
         "sub": str(user["id"]),      # 👈 make subject a string
         "username": user["username"],
+        "role": user["role"],
         "exp": datetime.utcnow() + timedelta(hours=1),
     }
 
@@ -341,6 +344,7 @@ def login():
     return jsonify({
         "id": user["id"],
         "username": user["username"],
+        "role": user["role"],
         "token": token,
     }), 200
 
