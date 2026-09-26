@@ -7,20 +7,55 @@ That is the point: you will add both, lesson by lesson, in Units 2 and 3.
 
 import sqlite3
 from sqlite3 import IntegrityError
-
 from jwt import ExpiredSignatureError
-
 from werkzeug.security import check_password_hash
-from flask import g  # if you're using g.db or similar
-
 from flask import Flask, g, jsonify, request
 from werkzeug.security import generate_password_hash
-
 import os
 from dotenv import load_dotenv
-
 import jwt
 from datetime import datetime, timedelta
+from functools import wraps
+
+def require_auth(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        result = authenticate_request()
+        if result is not None:
+            return result
+
+        # Auth OK, current user is in g.current_user
+        return fn(*args, **kwargs)
+
+    return wrapper
+
+def authenticate_request():
+    auth_header = request.headers.get("Authorization", "")
+
+    if not auth_header.startswith("Bearer "):
+        return jsonify({"error": "Missing or invalid Authorization header"}), 401
+
+    token = auth_header.split(" ", 1)[1].strip()
+
+    secret = app.config.get("JWT_SECRET")
+    if not secret:
+        raise RuntimeError("JWT_SECRET is not configured")
+
+    try:
+        payload = jwt.decode(token, secret, algorithms=["HS256"])
+    except ExpiredSignatureError:
+        return jsonify({"error": "token expired"}), 401
+    except jwt.InvalidTokenError as e:
+        print("JWT decode error:", repr(e))
+        return jsonify({"error": "invalid token"}), 401
+
+    g.current_user = {
+        "user_id": int(payload.get("sub")),
+        "role": payload.get("role", "user"),
+    }
+
+    return None
+
 
 
 load_dotenv()
@@ -135,29 +170,10 @@ def create_recipe():
     return jsonify(recipe_to_dict(row)), 201
 
 @app.patch("/recipes/<int:recipe_id>")
+@require_auth
 def update_recipe(recipe_id):
-    # Authenticate caller
-    auth_header = request.headers.get("Authorization", "")
-
-    if not auth_header.startswith("Bearer "):
-        return jsonify({"error": "Missing or invalid Authorization header"}), 401
-
-    token = auth_header.split(" ", 1)[1].strip()
-
-    secret = app.config.get("JWT_SECRET")
-    if not secret:
-        raise RuntimeError("JWT_SECRET is not configured")
-
-    try:
-        payload = jwt.decode(token, secret, algorithms=["HS256"])
-    except ExpiredSignatureError:
-        return jsonify({"error": "token expired"}), 401
-    except jwt.InvalidTokenError as e:
-        print("JWT decode error:", repr(e))
-        return jsonify({"error": "invalid token"}), 401
-
-    user_id = int(payload.get("sub"))
-    role = payload.get("role", "user")
+    user_id = g.current_user["user_id"]
+    role = g.current_user["role"]
 
     data = request.get_json(silent=True)
     if not data:
@@ -210,29 +226,10 @@ def update_recipe(recipe_id):
 
 
 @app.delete("/recipes/<int:recipe_id>")
+@require_auth
 def delete_recipe(recipe_id):
-    # Authenticate caller
-    auth_header = request.headers.get("Authorization", "")
-
-    if not auth_header.startswith("Bearer "):
-        return jsonify({"error": "Missing or invalid Authorization header"}), 401
-
-    token = auth_header.split(" ", 1)[1].strip()
-
-    secret = app.config.get("JWT_SECRET")
-    if not secret:
-        raise RuntimeError("JWT_SECRET is not configured")
-
-    try:
-        payload = jwt.decode(token, secret, algorithms=["HS256"])
-    except ExpiredSignatureError:
-        return jsonify({"error": "token expired"}), 401
-    except jwt.InvalidTokenError as e:
-        print("JWT decode error:", repr(e))
-        return jsonify({"error": "invalid token"}), 401
-
-    user_id = int(payload.get("sub"))
-    role = payload.get("role", "user")
+    user_id = g.current_user["user_id"]
+    role = g.current_user["role"]
 
     db = get_db()
 
@@ -255,7 +252,6 @@ def delete_recipe(recipe_id):
     db.commit()
 
     return "", 204
-
 
 
 
