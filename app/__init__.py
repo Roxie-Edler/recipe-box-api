@@ -1,4 +1,7 @@
-
+from app.routes.auth import auth_bp  # type: ignore
+from app.db import get_db, close_db, init_db  # type: ignore
+# from app.routes.recipes import recipes_bp  # type: ignore
+from app.services.recipe_service import create_recipe_for_user # type: ignore
 import os
 import sqlite3
 from sqlite3 import IntegrityError
@@ -55,15 +58,6 @@ def authenticate_request():
     return None
 
 
-def get_db():
-    if "db" not in g:
-        database = current_app.config["DATABASE"]
-        g.db = sqlite3.connect(database)
-        g.db.row_factory = sqlite3.Row
-        g.db.execute("PRAGMA foreign_keys = ON")
-    return g.db
-
-
 def recipe_to_dict(row):
     return {
         "id": row["id"],
@@ -80,11 +74,16 @@ def create_app(config_name="development"):
     chosen_class = config_by_name[config_name]
     app.config.from_object(chosen_class)
 
-    @app.teardown_appcontext
-    def close_db(exception):
-        db = g.pop("db", None)
-        if db is not None:
-            db.close()
+    app.register_blueprint(auth_bp, url_prefix="")
+    #app.register_blueprint(recipes_bp, url_prefix="")
+
+        # Register database connection cleanup.
+    app.teardown_appcontext(close_db)
+
+    # Create database tables if they don't exist.
+    init_db(app)
+
+
 
     @app.get("/")
     def hello():
@@ -93,12 +92,6 @@ def create_app(config_name="development"):
             "recipes": "/recipes"
         })
 
-    @app.get("/recipes")
-    def list_recipes():
-        rows = get_db().execute(
-            "SELECT * FROM recipes ORDER BY id"
-        ).fetchall()
-        return jsonify([recipe_to_dict(r) for r in rows])
 
     @app.get("/recipes/<int:recipe_id>")
     def get_recipe(recipe_id):
@@ -112,6 +105,7 @@ def create_app(config_name="development"):
 
         return jsonify(recipe_to_dict(row))
 
+    
     @app.post("/recipes")
     def create_recipe():
         auth_header = request.headers.get("Authorization", "")
@@ -138,8 +132,6 @@ def create_app(config_name="development"):
             return jsonify({"error": "invalid token"}), 401
 
         user_id = payload.get("sub")
-        username = payload.get("username")
-        print("Authenticated as:", user_id, username)
 
         data = request.get_json(silent=True)
         if not data or not data.get("title") or not data.get("ingredients"):
@@ -147,35 +139,13 @@ def create_app(config_name="development"):
                 "error": "title and ingredients are required"
             }), 400
 
-        db = get_db()
-
         try:
-            cur = db.execute(
-                """
-                INSERT INTO recipes
-                    (title, ingredients, instructions, is_public, owner_id)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (
-                    data["title"],
-                    data["ingredients"],
-                    data.get("instructions", ""),
-                    1 if data.get("is_public", True) else 0,
-                    user_id,
-                ),
-            )
-            db.commit()
-        except sqlite3.IntegrityError:
-            return jsonify({
-                "error": "a recipe with that title already exists"
-            }), 409
-
-        row = db.execute(
-            "SELECT * FROM recipes WHERE id = ?",
-            (cur.lastrowid,)
-        ).fetchone()
+            row = create_recipe_for_user(user_id, data)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 409
 
         return jsonify(recipe_to_dict(row)), 201
+
 
     @app.patch("/recipes/<int:recipe_id>")
     @require_auth
@@ -264,95 +234,6 @@ def create_app(config_name="development"):
 
         return "", 204
 
-    @app.post("/register")
-    def register():
-        data = request.get_json(silent=True) or {}
 
-        username = data.get("username")
-        email = data.get("email")
-        password = data.get("password")
-
-        if not username or not email or not password:
-            return jsonify({
-                "error": "username, email, and password are required"
-            }), 400
-
-        password_hash = generate_password_hash(
-            password, method="pbkdf2:sha256"
-        )
-
-        db = get_db()
-
-        try:
-            cur = db.execute(
-                """
-                INSERT INTO users (username, email, password_hash)
-                VALUES (?, ?, ?)
-                """,
-                (username, email, password_hash),
-            )
-            db.commit()
-        except IntegrityError:
-            return jsonify({
-                "error": "username or email already registered"
-            }), 409
-
-        return jsonify({
-            "id": cur.lastrowid,
-            "username": username,
-            "email": email,
-        }), 201
-
-    @app.post("/login")
-    def login():
-        data = request.get_json() or {}
-
-        username = data.get("username")
-        password = data.get("password")
-
-        if not username or not password:
-            return jsonify({
-                "error": "Username and password are required"
-            }), 400
-
-        db = get_db()
-
-        user = db.execute(
-            """
-            SELECT id, username, password_hash, role
-            FROM users
-            WHERE username = ?
-            """,
-            (username,),
-        ).fetchone()
-
-        if user is None or not check_password_hash(
-            user["password_hash"], password
-        ):
-            return jsonify({"error": "Invalid credentials"}), 401
-
-        payload = {
-            "sub": str(user["id"]),
-            "username": user["username"],
-            "role": user["role"],
-            "exp": datetime.utcnow() + timedelta(hours=1),
-        }
-
-        secret = current_app.config.get("JWT_SECRET")
-        if not secret:
-            raise RuntimeError("JWT_SECRET is not configured")
-
-        token = jwt.encode(
-            payload,
-            secret,
-            algorithm="HS256",
-        )
-
-        return jsonify({
-            "id": user["id"],
-            "username": user["username"],
-            "role": user["role"],
-            "token": token,
-        }), 200
 
     return app
