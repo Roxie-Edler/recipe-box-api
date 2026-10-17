@@ -10,11 +10,7 @@ from jwt import ExpiredSignatureError
 from dotenv import load_dotenv
 from flask import Flask, current_app, g, jsonify, request
 from werkzeug.security import check_password_hash, generate_password_hash
-
-
-load_dotenv()
-
-DATABASE = "recipes.db"
+from config import config_by_name # type: ignore
 
 
 def require_auth(fn):
@@ -61,7 +57,8 @@ def authenticate_request():
 
 def get_db():
     if "db" not in g:
-        g.db = sqlite3.connect(DATABASE)
+        database = current_app.config["DATABASE"]
+        g.db = sqlite3.connect(database)
         g.db.row_factory = sqlite3.Row
         g.db.execute("PRAGMA foreign_keys = ON")
     return g.db
@@ -77,9 +74,11 @@ def recipe_to_dict(row):
     }
 
 
-def create_app():
+def create_app(config_name="development"):
     app = Flask(__name__)
-    app.config["JWT_SECRET"] = os.getenv("JWT_SECRET")
+
+    chosen_class = config_by_name[config_name]
+    app.config.from_object(chosen_class)
 
     @app.teardown_appcontext
     def close_db(exception):
