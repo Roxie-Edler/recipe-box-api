@@ -21,6 +21,10 @@ class DevelopmentConfig(Config):
 
 class TestingConfig(Config):
     TESTING = True
+    DATABASE = os.getenv("TEST_DATABASE_PATH")
+
+    if not DATABASE:
+        raise RuntimeError("TEST_DATABASE_PATH is not configured")
 
 
 class ProductionConfig(Config):

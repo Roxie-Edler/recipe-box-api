@@ -1,6 +1,6 @@
 from app.routes.auth import auth_bp  # type: ignore
 from app.db import get_db, close_db, init_db  # type: ignore
-# from app.routes.recipes import recipes_bp  # type: ignore
+#from app.routes.recipes import recipes_bp  # type: ignore
 from app.services.recipe_service import create_recipe_for_user # type: ignore
 import os
 import sqlite3
@@ -233,6 +233,13 @@ def create_app(config_name="development"):
         db.commit()
 
         return "", 204
+    
+    @app.get("/recipes/count")
+    def recipe_count():
+        from app.services.recipe_service import get_recipe_count # type: ignore
+
+        result = get_recipe_count()
+        return jsonify(result), 200
 
 
 

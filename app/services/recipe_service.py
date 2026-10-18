@@ -35,3 +35,23 @@ def create_recipe_for_user(user_id, data):
     ).fetchone()
 
     return row
+
+def get_recipe_count():
+    """Return the total number of recipes."""
+    db = get_db()
+
+    row = db.execute(
+        "SELECt COUNT(*) AS count FROM recipes"
+    ).fetchone()
+
+    return {"count": row["count"]}
+
+def get_recipe_count():
+    """Return the total number of recipes."""
+    db = get_db()
+
+    row = db.execute(
+        "SELECT COUNT(*) AS count FROM recipes"
+    ).fetchone()
+
+    return {"count": row["count"]}

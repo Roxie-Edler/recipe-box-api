@@ -3,6 +3,11 @@ from sqlite3 import IntegrityError
 from datetime import datetime, timedelta
 import sqlite3
 import jwt
+from app.services.recipe_service import (
+    create_recipe_for_user,
+    get_recipe_count,
+)
+
 
 from app import require_auth  # <— add this
 
@@ -181,3 +186,7 @@ def delete_recipe(recipe_id):
 
     return "", 204
 
+@recipes_bp.get("/recipes/count")
+def recipe_count():
+    result = get_recipe_count()
+    return jsonify(result), 200
