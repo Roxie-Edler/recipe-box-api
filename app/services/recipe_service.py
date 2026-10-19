@@ -1,7 +1,4 @@
-
-import sqlite3
-
-from app.db import get_db # type: ignore
+from sqlalchemy.exc import IntegrityError
 from app.extensions import db # type: ignore
 from app.models import Recipe # type: ignore
 
@@ -18,41 +15,60 @@ def get_recipe_by_id(recipe_id):
 
 def create_recipe_for_user(user_id, data):
     """Create a recipe for a user and return the inserted database row."""
-    database = get_db()
+    recipe = Recipe(
+        title=data["title"],
+        ingredients=data["ingredients"],
+        instructions=data.get("instructions", ""),
+        is_public=1 if data.get("is_public", True) else 0,
+        owner_id=user_id,
+    )
 
     try:
-        cursor = database.execute(
-            """
-            INSERT INTO recipes
-                (title, ingredients, instructions, is_public, owner_id)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (
-                data["title"],
-                data["ingredients"],
-                data.get("instructions", ""),
-                1 if data.get("is_public", True) else 0,
-                user_id,
-            ),
-        )
-        database.commit()
-    except sqlite3.IntegrityError as exc:
+        db.session.add(recipe)
+        db.session.commit()
+    except IntegrityError as exc:
+        db.session.rollback()
         raise ValueError(
             "a recipe with that title already exists"
         ) from exc
 
-    return database.execute(
-        "SELECT * FROM recipes WHERE id = ?",
-        (cursor.lastrowid,),
-    ).fetchone()
+    return recipe
 
+def update_recipe_for_user(recipe_id, user_id, role, data):
+    recipe = db.session.get(Recipe, recipe_id)
+    if recipe is None:
+        return None
+    
+    if recipe.owner_id != user_id and role != "admin":
+        raise PermissionError("forbidden")
+
+    for field in ("title", "ingredients", "instructions", "is_public"):
+        if field in data:
+            setattr(recipe, field, int(bool(data[field])) if field == "is_public" else data[field])
+    
+    try:
+        db.session.commit()
+    except IntegrityError as exc:
+        db.session.rollback()
+        raise ValueError("a recipe with that title already exists") from exc
+
+    return recipe
+
+def delete_recipe_for_user(recipe_id, user_id, role):
+    recipe = db.session.get(Recipe, recipe_id)
+
+    if recipe is None:
+        return None
+
+    if recipe.owner_id != user_id and role != "admin":
+        raise PermissionError("forbidden")
+
+    db.session.delete(recipe)
+    db.session.commit()
+
+    return True
 
 def get_recipe_count():
     """Return the total number of recipes."""
-    database = get_db()
-    row = database.execute(
-        "SELECT COUNT(*) AS count FROM recipes"
-    ).fetchone()
-
-    return {"count": row["count"]}
-
+    count = db.session.query(db.func.count(Recipe.id)).scalar()
+    return {"count": count}

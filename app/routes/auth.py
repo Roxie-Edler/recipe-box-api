@@ -1,7 +1,7 @@
 
 from flask import Blueprint, request, jsonify
 
-from app.services.auth_service import (
+from app.services.auth_service import ( # type: ignore
     register_user,
     login_user,
     UserAlreadyExistsError,

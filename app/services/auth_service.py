@@ -1,9 +1,9 @@
 from datetime import datetime, timedelta
-
+from sqlalchemy.exc import IntegrityError
+from app.extensions import db # type: ignore
+from app.models import User # type: ignore
 import jwt
 from flask import current_app, g
-import sqlite3
-
 from werkzeug.security import (
     generate_password_hash,
     check_password_hash,
@@ -15,15 +15,6 @@ class InvalidCredentialsError(Exception):
 
 class UserAlreadyExistsError(Exception):
     """Raised when a username or email is already registered."""
-
-
-def get_db():
-    if "db" not in g:
-        database = current_app.config["DATABASE"]
-        g.db = sqlite3.connect(database)
-        g.db.row_factory = sqlite3.Row
-        g.db.execute("PRAGMA foreign_keys = ON")
-    return g.db
 
 
 def register_user(data):
@@ -41,27 +32,25 @@ def register_user(data):
         password, method="pbkdf2:sha256"
     )
 
-    db = get_db()
+    user = User(
+        username=username,
+        email=email,
+        password_hash=password_hash,
+    )
 
     try:
-        cur = db.execute(
-            """
-            INSERT INTO users (username, email, password_hash)
-            VALUES (?, ?, ?)
-            """,
-            (username, email, password_hash),
-        )
-        db.commit()
-    except sqlite3.IntegrityError as exc:
-        db.rollback()
+        db.session.add(user)
+        db.session.commit()
+    except IntegrityError as exc:
+        db.session.rollback()
         raise UserAlreadyExistsError(
             "username or email already registered"
         ) from exc
 
     return {
-        "id": cur.lastrowid,
-        "username": username,
-        "email": email,
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
     }
 
 
@@ -72,31 +61,22 @@ def login_user(data):
 
     if not username or not password:
         raise ValueError("Username and password are required")
-    
-    db = get_db()
 
-    user = db.execute(
-        """
-        SELECT id, username, password_hash, role
-        FROM users
-        WHERE username = ?
-        """,
-        (username,),
-    ).fetchone()
+    user = User.query.filter_by(username=username).first()
 
     if user is None or not check_password_hash(
-        user["password_hash"], password
+        user.password_hash, password
     ):
         raise InvalidCredentialsError("Invalid credentials")
-    
+
     secret = current_app.config.get("JWT_SECRET")
     if not secret:
         raise RuntimeError("JWT_SECRET is not configured")
-    
+
     payload = {
-        "sub": str(user["id"]),
-        "username": user["username"],
-        "role": user["role"],
+        "sub": str(user.id),
+        "username": user.username,
+        "role": user.role,
         "exp": datetime.utcnow() + timedelta(hours=1),
     }
 
@@ -107,8 +87,8 @@ def login_user(data):
     )
 
     return {
-        "id": user["id"],
-        "username": user["username"],
-        "role": user["role"],
+        "id": user.id,
+        "username": user.username,
+        "role": user.role,
         "token": token,
     }

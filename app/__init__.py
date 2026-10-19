@@ -6,7 +6,7 @@ from config import config_by_name  # type: ignore
 from app.extensions import db as sqlalchemy_db # type: ignore
 from app.routes.auth import auth_bp  # type: ignore
 from app.routes.recipes import recipes_bp  # type: ignore
-from app.db import close_db, init_db  # type: ignore
+
 
 
 def create_app(config_name="development"):
@@ -25,11 +25,6 @@ def create_app(config_name="development"):
     app.register_blueprint(auth_bp, url_prefix="")
     app.register_blueprint(recipes_bp, url_prefix="")
 
-    # Clean up the SQLite connection after each request.
-    app.teardown_appcontext(close_db)
-
-    # Initialize the existing SQLite database.
-    init_db(app)
 
     @app.get("/")
     def hello():
