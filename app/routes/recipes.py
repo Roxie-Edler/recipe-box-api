@@ -1,38 +1,56 @@
-from flask import Blueprint, request, jsonify, current_app, g
-from sqlite3 import IntegrityError
-from datetime import datetime, timedelta
+from app.models import Recipe # type: ignore
+from app.extensions import db # type: ignore
+from app.services.recipe_service import list_recipes as list_recipes_orm, get_recipe_by_id # type: ignore
 import sqlite3
+
 import jwt
-from app.services.recipe_service import (
+from jwt import ExpiredSignatureError
+from flask import Blueprint, request, jsonify, current_app, g
+
+from app.db import get_db # type: ignore
+from app.auth_utils import require_auth # type: ignore
+from app.services.recipe_service import ( # type: ignore
     create_recipe_for_user,
     get_recipe_count,
+    list_recipes,
+    get_recipe_by_id,
 )
+from app.utils import recipe_to_dict # type: ignore
 
-
-from app import require_auth  # <— add this
 
 recipes_bp = Blueprint("recipes", __name__)
 
-recipes_bp = Blueprint("recipes", __name__)
+
 
 @recipes_bp.get("/recipes")
 def list_recipes():
-    rows = get_db().execute(
-        "SELECT * FROM recipes ORDER BY id"
-    ).fetchall()
-    return jsonify([recipe_to_dict(r) for r in rows])
+    recipes = list_recipes_orm()
+    return jsonify([{
+        "id": r.id,
+        "title": r.title,
+        "ingredients": r.ingredients,
+        "instructions": r.instructions,
+        "is_public": r.is_public,
+        "owner_id": r.owner_id,
+    } for r in recipes])
+
 
 @recipes_bp.get("/recipes/<int:recipe_id>")
 def get_recipe(recipe_id):
-    row = get_db().execute(
-        "SELECT * FROM recipes WHERE id = ?",
-        (recipe_id,)
-    ).fetchone()
+    recipe = get_recipe_by_id(recipe_id)
 
-    if row is None:
+    if recipe is None:
         return jsonify({"error": "recipe not found"}), 404
 
-    return jsonify(recipe_to_dict(row))
+    return jsonify({
+        "id": recipe.id,
+        "title": recipe.title,
+        "ingredients": recipe.ingredients,
+        "instructions": recipe.instructions,
+        "is_public": recipe.is_public,
+        "owner_id": recipe.owner_id,
+    })
+
 
 @recipes_bp.post("/recipes")
 def create_recipe():
@@ -51,53 +69,35 @@ def create_recipe():
 
     try:
         payload = jwt.decode(
-            token, secret, algorithms=["HS256"]
+            token,
+            secret,
+            algorithms=["HS256"],
         )
     except ExpiredSignatureError:
         return jsonify({"error": "token expired"}), 401
-    except jwt.InvalidTokenError as e:
-        print("JWT decode error:", repr(e))
+    except jwt.InvalidTokenError:
         return jsonify({"error": "invalid token"}), 401
 
     user_id = payload.get("sub")
-    username = payload.get("username")
-    print("Authenticated as:", user_id, username)
 
     data = request.get_json(silent=True)
-    if not data or not data.get("title") or not data.get("ingredients"):
+
+    if (
+        not data
+        or not data.get("title")
+        or not data.get("ingredients")
+    ):
         return jsonify({
             "error": "title and ingredients are required"
         }), 400
 
-    db = get_db()
-
     try:
-        cur = db.execute(
-            """
-            INSERT INTO recipes
-                (title, ingredients, instructions, is_public, owner_id)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (
-                data["title"],
-                data["ingredients"],
-                data.get("instructions", ""),
-                1 if data.get("is_public", True) else 0,
-                user_id,
-            ),
-        )
-        db.commit()
-    except sqlite3.IntegrityError:
-        return jsonify({
-            "error": "a recipe with that title already exists"
-        }), 409
-
-    row = db.execute(
-        "SELECT * FROM recipes WHERE id = ?",
-        (cur.lastrowid,)
-    ).fetchone()
+        row = create_recipe_for_user(user_id, data)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 409
 
     return jsonify(recipe_to_dict(row)), 201
+
 
 @recipes_bp.patch("/recipes/<int:recipe_id>")
 @require_auth
@@ -106,6 +106,7 @@ def update_recipe(recipe_id):
     role = g.current_user["role"]
 
     data = request.get_json(silent=True)
+
     if not data:
         return jsonify({
             "error": "a JSON body is required"
@@ -115,7 +116,7 @@ def update_recipe(recipe_id):
 
     row = db.execute(
         "SELECT * FROM recipes WHERE id = ?",
-        (recipe_id,)
+        (recipe_id,),
     ).fetchone()
 
     if row is None:
@@ -144,7 +145,7 @@ def update_recipe(recipe_id):
     try:
         db.execute(
             f"UPDATE recipes SET {', '.join(fields)} WHERE id = ?",
-            values
+            values,
         )
         db.commit()
     except sqlite3.IntegrityError:
@@ -154,10 +155,11 @@ def update_recipe(recipe_id):
 
     row = db.execute(
         "SELECT * FROM recipes WHERE id = ?",
-        (recipe_id,)
+        (recipe_id,),
     ).fetchone()
 
-    return jsonify(recipe_to_dict(row))
+    return jsonify(recipe_to_dict(row)), 200
+
 
 @recipes_bp.delete("/recipes/<int:recipe_id>")
 @require_auth
@@ -169,7 +171,7 @@ def delete_recipe(recipe_id):
 
     row = db.execute(
         "SELECT * FROM recipes WHERE id = ?",
-        (recipe_id,)
+        (recipe_id,),
     ).fetchone()
 
     if row is None:
@@ -180,11 +182,12 @@ def delete_recipe(recipe_id):
 
     db.execute(
         "DELETE FROM recipes WHERE id = ?",
-        (recipe_id,)
+        (recipe_id,),
     )
     db.commit()
 
     return "", 204
+
 
 @recipes_bp.get("/recipes/count")
 def recipe_count():

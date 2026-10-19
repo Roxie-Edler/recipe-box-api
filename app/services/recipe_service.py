@@ -2,14 +2,26 @@
 import sqlite3
 
 from app.db import get_db # type: ignore
+from app.extensions import db # type: ignore
+from app.models import Recipe # type: ignore
+
+
+def list_recipes():
+    """Return all recipes ordered by ID."""
+    return Recipe.query.order_by(Recipe.id).all()
+
+
+def get_recipe_by_id(recipe_id):
+    """Return a recipe by ID, or None if it doesn't exist."""
+    return db.session.get(Recipe, recipe_id)
 
 
 def create_recipe_for_user(user_id, data):
     """Create a recipe for a user and return the inserted database row."""
-    db = get_db()
+    database = get_db()
 
     try:
-        cursor = db.execute(
+        cursor = database.execute(
             """
             INSERT INTO recipes
                 (title, ingredients, instructions, is_public, owner_id)
@@ -23,35 +35,24 @@ def create_recipe_for_user(user_id, data):
                 user_id,
             ),
         )
-        db.commit()
+        database.commit()
     except sqlite3.IntegrityError as exc:
         raise ValueError(
             "a recipe with that title already exists"
         ) from exc
 
-    row = db.execute(
+    return database.execute(
         "SELECT * FROM recipes WHERE id = ?",
         (cursor.lastrowid,),
     ).fetchone()
 
-    return row
 
 def get_recipe_count():
     """Return the total number of recipes."""
-    db = get_db()
-
-    row = db.execute(
-        "SELECt COUNT(*) AS count FROM recipes"
-    ).fetchone()
-
-    return {"count": row["count"]}
-
-def get_recipe_count():
-    """Return the total number of recipes."""
-    db = get_db()
-
-    row = db.execute(
+    database = get_db()
+    row = database.execute(
         "SELECT COUNT(*) AS count FROM recipes"
     ).fetchone()
 
     return {"count": row["count"]}
+
