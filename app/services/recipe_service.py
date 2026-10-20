@@ -28,6 +28,11 @@ def create_recipe_for_user(user_id, data):
         db.session.commit()
     except IntegrityError as exc:
         db.session.rollback()
+        error_message = str(exc.orig).lower()
+        
+        if "foreign key" in error_message:
+            raise ValueError("invalid owner") from exc
+
         raise ValueError(
             "a recipe with that title already exists"
         ) from exc
@@ -39,7 +44,7 @@ def update_recipe_for_user(recipe_id, user_id, role, data):
     if recipe is None:
         return None
     
-    if recipe.owner_id != user_id and role != "admin":
+    if (recipe.owner is None or recipe.owner.id != user_id) and role != "admin":
         raise PermissionError("forbidden")
 
     for field in ("title", "ingredients", "instructions", "is_public"):
@@ -60,7 +65,7 @@ def delete_recipe_for_user(recipe_id, user_id, role):
     if recipe is None:
         return None
 
-    if recipe.owner_id != user_id and role != "admin":
+    if (recipe.owner is None or recipe.owner.id != user_id) and role != "admin":
         raise PermissionError("forbidden")
 
     db.session.delete(recipe)
