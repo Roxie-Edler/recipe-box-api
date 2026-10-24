@@ -7,6 +7,8 @@ class Config:
     JWT_SECRET = os.getenv("JWT_SECRET")
     DATABASE = os.getenv("DATABASE_PATH")
     SQLALCHEMY_DATABASE_URI = f"sqlite:///{DATABASE}"
+    CACHE_TYPE = "SimpleCache"
+    CACHE_DEFAULT_TIMEOUT = 60
     DEBUG = os.getenv("DEBUG", "False") == "True"
 
     if JWT_SECRET is None:

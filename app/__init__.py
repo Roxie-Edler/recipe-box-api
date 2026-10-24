@@ -3,7 +3,7 @@ from flask import Flask, jsonify
 from dotenv import load_dotenv
 
 from config import config_by_name  # type: ignore
-from app.extensions import db as sqlalchemy_db, migrate # type: ignore
+from app.extensions import db as sqlalchemy_db, migrate, cache, limiter # type: ignore
 from app.routes.auth import auth_bp  # type: ignore
 from app.routes.recipes import recipes_bp  # type: ignore
 
@@ -21,6 +21,8 @@ def create_app(config_name="development"):
     # Initialize SQLAlchemy.
     sqlalchemy_db.init_app(app)
     migrate.init_app(app, sqlalchemy_db)
+    cache.init_app(app)
+    limiter.init_app(app)
 
     # Register route blueprints.
     app.register_blueprint(auth_bp, url_prefix="")

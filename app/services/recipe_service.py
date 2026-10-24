@@ -1,6 +1,9 @@
 from sqlalchemy.exc import IntegrityError
 from app.extensions import db # type: ignore
-from app.models import Recipe # type: ignore
+from app.models import Recipe, UserFavorite # type: ignore
+
+class RecipeNotFoundError(Exception):
+    """Raised when a requested recipe does not exist."""
 
 
 def list_recipes():
@@ -77,3 +80,61 @@ def get_recipe_count():
     """Return the total number of recipes."""
     count = db.session.query(db.func.count(Recipe.id)).scalar()
     return {"count": count}
+
+
+def favorite_recipe_for_user(user_id, recipe_id):
+    """Favorite a recipe for a user; do nothing if already favorited."""
+    recipe = db.session.get(Recipe, recipe_id)
+
+    if recipe is None:
+        raise RecipeNotFoundError(
+            f"Recipe {recipe_id} not found"
+        )
+
+    favorite = UserFavorite.query.filter_by(
+        user_id=user_id,
+        recipe_id=recipe_id,
+    ).first()
+
+    if favorite is None:
+        favorite = UserFavorite(
+            user_id=user_id,
+            recipe_id=recipe_id,
+        )
+        db.session.add(favorite)
+
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            raise
+
+    return {
+        "recipe_id": recipe_id,
+        "favorited": True,
+    }
+
+
+def unfavorite_recipe_for_user(user_id, recipe_id):
+    """Remove a user's favorite; succeed if it doesn't exist."""
+    recipe = db.session.get(Recipe, recipe_id)
+
+    if recipe is None:
+        raise RecipeNotFoundError(
+            f"Recipe {recipe_id} not found"
+        )
+
+    favorite = UserFavorite.query.filter_by(
+        user_id=user_id,
+        recipe_id=recipe_id,
+    ).first()
+
+    if favorite is not None:
+        db.session.delete(favorite)
+        db.session.commit()
+
+    return {
+        "recipe_id": recipe_id,
+        "favorited": False,
+    }
+

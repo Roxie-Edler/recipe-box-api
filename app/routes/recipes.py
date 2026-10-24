@@ -1,6 +1,7 @@
 import jwt
 from jwt import ExpiredSignatureError
 from flask import Blueprint, request, jsonify, current_app, g
+from app.extensions import cache, limiter # type: ignore
 
 from app.auth_utils import require_auth  # type: ignore
 from app.services.recipe_service import (  # type: ignore
@@ -10,6 +11,9 @@ from app.services.recipe_service import (  # type: ignore
     get_recipe_by_id,
     update_recipe_for_user,
     delete_recipe_for_user,
+    favorite_recipe_for_user,
+    unfavorite_recipe_for_user,
+    RecipeNotFoundError,
 )
 from app.utils import recipe_to_dict  # type: ignore
 
@@ -17,15 +21,23 @@ recipes_bp = Blueprint("recipes", __name__)
 
 @recipes_bp.get("/recipes")
 def list_recipes():
-    recipes = list_recipes_orm()
-    return jsonify([{
-        "id": r.id,
-        "title": r.title,
-        "ingredients": r.ingredients,
-        "instructions": r.instructions,
-        "is_public": r.is_public,
-        "owner_id": r.owner_id,
-    } for r in recipes])
+    recipes = cache.get("recipes_list")
+
+    if recipes is None:
+        recipes = list_recipes_orm()
+
+        recipes = [{
+            "id": r.id,
+            "title": r.title,
+            "ingredients": r.ingredients,
+            "instructions": r.instructions,
+            "is_public": r.is_public,
+            "owner_id": r.owner_id,
+        } for r in recipes]
+
+        cache.set("recipes_list", recipes, timeout=60)
+
+    return jsonify(recipes)
 
 
 @recipes_bp.get("/recipes/<int:recipe_id>")
@@ -86,6 +98,7 @@ def create_recipe():
 
     try:
         row = create_recipe_for_user(user_id, data)
+        cache.delete("recipes_list")
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 409
 
@@ -146,3 +159,32 @@ def delete_recipe(recipe_id):
 def recipe_count():
     result = get_recipe_count()
     return jsonify(result), 200
+
+
+@recipes_bp.put("/recipes/<int:recipe_id>/favorite")
+@require_auth
+@limiter.limit("20 per minute")
+def favorite_recipe(recipe_id):
+    user_id = g.current_user["user_id"]
+
+    try:
+        result = favorite_recipe_for_user(user_id, recipe_id)
+    except RecipeNotFoundError as exc:
+        return jsonify({"error": str(exc)}), 404
+
+    return jsonify(result), 200
+
+
+@recipes_bp.delete("/recipes/<int:recipe_id>/favorite")
+@require_auth
+@limiter.limit("20 per minute")
+def unfavorite_recipe(recipe_id):
+    user_id = g.current_user["user_id"]
+
+    try:
+        result = unfavorite_recipe_for_user(user_id, recipe_id)
+    except RecipeNotFoundError as exc:
+        return jsonify({"error": str(exc)}), 404
+
+    return jsonify(result), 200
+
