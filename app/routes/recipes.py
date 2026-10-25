@@ -135,6 +135,7 @@ def update_recipe(recipe_id):
     if recipe is None:
         return jsonify({"error": "recipe not found"}), 404
 
+    cache.delete("recipes_list")
     return jsonify(recipe_to_dict(recipe)), 200
 
 
@@ -151,7 +152,8 @@ def delete_recipe(recipe_id):
 
     if result is None:
         return jsonify({"error": "recipe not found"}), 404
-
+    
+    cache.delete("recipes_list")
     return "", 204
 
 
