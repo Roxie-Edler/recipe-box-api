@@ -1,18 +1,21 @@
 
 import asyncio
+import time
 
-async def fetch_data():
-    print("inside fetch_data")
-    return 42
+async def ping():
+    print("ping: start")
+    #await asyncio.sleep(1)
+    time.sleep(1)
+    print("ping: end")
 
-async def process_data():
-    print("start process_data")
-    value = await fetch_data()
-    print("got from fetch_data:", value)
-    return value * 2
+async def pong():
+    print("pong: start")
+    await asyncio.sleep(1)
+    print("pong: end")
 
 async def main():
-    final = await process_data()
-    print("in main, final =", final)
+    print("main: start")
+    await asyncio.gather(ping(), pong())
+    print("main: end")
 
 asyncio.run(main())
