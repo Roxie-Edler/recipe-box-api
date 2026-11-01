@@ -2,7 +2,8 @@ import jwt
 from jwt import ExpiredSignatureError
 from flask import Blueprint, request, jsonify, current_app, g
 from app.extensions import cache, limiter # type: ignore
-
+import asyncio
+import httpx
 from app.auth_utils import require_auth  # type: ignore
 from app.services.recipe_service import (  # type: ignore
     create_recipe_for_user,
@@ -38,6 +39,27 @@ def list_recipes():
         cache.set("recipes_list", recipes, timeout=60)
 
     return jsonify(recipes)
+
+
+
+@recipes_bp.get("/recipes/slow-async-demo")
+async def slow_async_demo():
+    base_url = current_app.config["SLOW_SERVICE_URL"]
+
+    async with httpx.AsyncClient(base_url=base_url) as client:
+        coros = [
+            client.get("/nutrition/eggs"),
+            client.get("/nutrition/eggs"),
+            client.get("/nutrition/eggs"),
+        ]
+
+        responses = await asyncio.gather(*coros)
+
+    return jsonify({
+        "statuses": [r.status_code for r in responses],
+        "count": len(responses)
+    })
+
 
 
 @recipes_bp.get("/recipes/<int:recipe_id>")

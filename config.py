@@ -9,6 +9,7 @@ class Config:
     SQLALCHEMY_DATABASE_URI = f"sqlite:///{DATABASE}"
     CACHE_TYPE = "SimpleCache"
     CACHE_DEFAULT_TIMEOUT = 60
+    SLOW_SERVICE_URL = os.getenv("SLOW_SERVICE_URL")
     DEBUG = os.getenv("DEBUG", "False") == "True"
 
     if JWT_SECRET is None:
