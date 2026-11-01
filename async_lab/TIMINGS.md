@@ -11,3 +11,15 @@ async sequential httpx, 3 calls: 3.064129 seconds
 async gather httpx, 3 calls: 1.052505 seconds
 
 With a 0.5s timeout, we give up the chance for slower requests to finish successfully in order to get predictable ~0.5s responses and avoid the script hanging for several seconds.
+
+Performance Timings
+Slow service running
+Sync endpoint (/recipes/slow-sync-demo): 3 calls, approximately 3.05 seconds.
+Async endpoint (/recipes/slow-async-demo): 3 concurrent calls, approximately 1.02 seconds.
+Slow service stopped
+Async endpoint (/recipes/slow-async-demo): 3 calls, record actual measured duration.
+Expected result: HTTP 200, fallback_count=3.
+Expected reason: slow service unavailable.
+Conclusion
+
+Concurrent async HTTP requests significantly reduce response time when multiple independent I/O operations are needed. Timeout and fallback handling also allow the endpoint to return useful results when the external service is unavailable.

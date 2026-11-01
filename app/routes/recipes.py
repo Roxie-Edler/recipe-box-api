@@ -4,6 +4,7 @@ from flask import Blueprint, request, jsonify, current_app, g
 from app.extensions import cache, limiter # type: ignore
 import asyncio
 import httpx
+import time
 from app.auth_utils import require_auth  # type: ignore
 from app.services.recipe_service import (  # type: ignore
     create_recipe_for_user,
@@ -47,19 +48,77 @@ async def slow_async_demo():
     base_url = current_app.config["SLOW_SERVICE_URL"]
 
     async with httpx.AsyncClient(base_url=base_url) as client:
-        coros = [
-            client.get("/nutrition/eggs"),
-            client.get("/nutrition/eggs"),
-            client.get("/nutrition/eggs"),
-        ]
 
-        responses = await asyncio.gather(*coros)
+        async def fetch_one():
+            try:
+                response = await client.get(
+                    "/nutrition/eggs",
+                    timeout=1.5
+                )
+                response.raise_for_status()
+
+                return {
+                    "status": "success",
+                    "http_status": response.status_code,
+                    "fallback": False
+                }
+
+            except httpx.TimeoutException:
+                return {
+                    "status": "fallback",
+                    "fallback": True,
+                    "reason": "slow service timeout"
+                }
+
+            except httpx.RequestError:
+                return {
+                    "status": "fallback",
+                    "fallback": True,
+                    "reason": "slow service unavailable"
+                }
+
+        start = time.perf_counter()
+
+        results = await asyncio.gather(
+            fetch_one(),
+            fetch_one(),
+            fetch_one()
+        )
+
+        duration = time.perf_counter() - start
 
     return jsonify({
-        "statuses": [r.status_code for r in responses],
-        "count": len(responses)
-    })
+        "results": results,
+        "count": len(results),
+        "duration": round(duration, 6),
+        "fallback_count": sum(
+            1 for result in results if result["fallback"]
+        )
+    }), 200
 
+
+@recipes_bp.get("/recipes/slow-sync-demo")
+def slow_sync_demo():
+    base_url = current_app.config["SLOW_SERVICE_URL"]
+    url = f"{base_url}/nutrition/eggs"
+
+    start = time.perf_counter()
+
+    r1 = httpx.get(url)
+    r2 = httpx.get(url)
+    r3 = httpx.get(url)
+
+    duration = time.perf_counter() - start
+
+    return jsonify({
+        "mode": "sequential",
+        "duration": round(duration, 6),
+        "statuses": [
+            r1.status_code,
+            r2.status_code,
+            r3.status_code
+        ]
+    })
 
 
 @recipes_bp.get("/recipes/<int:recipe_id>")
