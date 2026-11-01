@@ -47,7 +47,7 @@ def update_recipe_for_user(recipe_id, user_id, role, data):
     if recipe is None:
         return None
     
-    if (recipe.owner is None or recipe.owner.id != user_id) and role != "admin":
+    if recipe.owner_id != user_id and role != "admin":
         raise PermissionError("forbidden")
 
     for field in ("title", "ingredients", "instructions", "is_public"):
